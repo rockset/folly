@@ -215,7 +215,7 @@ class Fiber {
                                            queues */
   folly::IntrusiveListHook globalListHook_; /**< list hook for global list */
 
-#ifdef FOLLY_SANITIZE_ADDRESS
+#ifdef FOLLY_LIBRARY_SANITIZE_ADDRESS
   void* asanFakeStack_{nullptr};
   const void* asanMainStackBase_{nullptr};
   size_t asanMainStackSize_{0};
