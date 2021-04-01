@@ -480,10 +480,11 @@ void signalHandler(int signum, siginfo_t* info, void* uctx) {
 
 #endif // FOLLY_USE_SYMBOLIZER
 
-// Small sigaltstack size threshold.
-// 51392 is known to cause the signal handler to stack overflow during
-// symbolization of trivial async stacks (e.g [] { CHECK(false); co_return; }).
-constexpr size_t kSmallSigAltStackSize = 51392;
+// Small sigaltstack size threshold. If the alternate stack is too small we
+// must use UnsafeSelfAllocateStackTracePrinter() to avoid stack overflow
+// during symbolization of a signal. 48K has been observed to have stack
+// overflow, and 56K has been observed to work.
+constexpr size_t kSmallSigAltStackSize = 65536;
 
 [[maybe_unused]] bool isSmallSigAltStackEnabled() {
   stack_t ss;
