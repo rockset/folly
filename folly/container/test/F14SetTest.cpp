@@ -368,6 +368,36 @@ void runSimple() {
     EXPECT_TRUE(h2.find(to<std::string>(i * i * i + 2)) == h2.end());
   }
 
+  {
+    std::vector<std::string> keys;
+    keys.reserve(2000);
+    for (uint64_t i = 0; i < 1000; ++i) {
+      keys.push_back(to<std::string>(i * i * i));
+      keys.push_back(to<std::string>(i * i * i + 2));
+    }
+
+    std::vector<typename T::iterator> iters;
+    iters.resize(2000);
+    h2.findv(keys.begin(), keys.end(), iters.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      EXPECT_TRUE(h2.find(keys[i]) == iters[i]);
+    }
+
+    for (uint64_t lim = 0; lim < 64; ++lim) {
+      h2.findv(keys.begin(), keys.begin() + lim, iters.begin() + lim);
+      for (uint64_t i = 0; i < lim; ++i) {
+        EXPECT_TRUE(h2.find(keys[i]) == iters[i + lim]);
+      }
+    }
+
+    std::vector<typename T::const_iterator> citers;
+    citers.resize(2000);
+    const_cast<const T&>(h2).findv(keys.begin(), keys.end(), citers.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      EXPECT_TRUE(h2.find(keys[i]) == citers[i]);
+    }
+  }
+
   T h4{h2};
   EXPECT_EQ(h2.size(), 1000);
   EXPECT_EQ(h4.size(), 1000);

@@ -72,6 +72,7 @@ class SparseMaskIter {
   uint32_t interleavedMask_;
 
  public:
+  SparseMaskIter() {}
   explicit SparseMaskIter(MaskType mask)
       : interleavedMask_{static_cast<uint32_t>(((mask >> 32) << 2) | mask)} {}
 
@@ -129,6 +130,7 @@ class SparseMaskIter {
   MaskType mask_;
 
  public:
+  SparseMaskIter() {};
   explicit SparseMaskIter(MaskType mask) : mask_{mask} {}
 
   bool hasNext() { return mask_ != 0; }

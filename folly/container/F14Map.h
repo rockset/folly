@@ -671,6 +671,51 @@ class F14BasicMap {
     return table_.makeConstIter(table_.find(token, key));
   }
 
+  // Sets results[i] to find(kbegin[i]) for i < kend - kbegin,
+  // working on up to kMaxProcessingWidth keys at a time. May
+  // perform multiple assignments to each element of results --
+  // only the last is correct.
+  template <unsigned kMaxProcessingWidth = 64,
+            typename KeyIter,
+            typename ResultIter>
+  void findv(KeyIter kbegin, KeyIter kend, ResultIter results) {
+    table_.template findv<kMaxProcessingWidth>(
+        kbegin, kend, results, end(), [&](const ItemIter& iter) {
+            return table_.makeIter(iter);
+        });
+  }
+
+  template <unsigned kMaxProcessingWidth = 64,
+            typename KeyIter,
+            typename ResultIter>
+  void findv(KeyIter kbegin, KeyIter kend, ResultIter results) const {
+    table_.template findv<kMaxProcessingWidth>(
+        kbegin, kend, results, end(), [&](const ItemIter& iter) {
+            return table_.makeConstIter(iter);
+        });
+  }
+
+  // Like findv, but assigns mapped_type* or nullptr to results
+  template <unsigned kMaxProcessingWidth = 64,
+            typename KeyIter,
+            typename ResultIter>
+  void get_ptrs(KeyIter kbegin, KeyIter kend, ResultIter results) {
+    table_.template findv<kMaxProcessingWidth>(
+        kbegin, kend, results, nullptr, [&](const ItemIter& iter) {
+            return &table_.makeIter(iter)->second;
+        });
+  }
+
+  template <unsigned kMaxProcessingWidth = 64,
+            typename KeyIter,
+            typename ResultIter>
+  void get_ptrs(KeyIter kbegin, KeyIter kend, ResultIter results) const {
+    table_.template findv<kMaxProcessingWidth>(
+        kbegin, kend, results, nullptr, [&](const ItemIter& iter) {
+            return &table_.makeConstIter(iter)->second;
+        });
+  }
+
   FOLLY_ALWAYS_INLINE bool contains(key_type const& key) const {
     return !table_.find(key).atEnd();
   }

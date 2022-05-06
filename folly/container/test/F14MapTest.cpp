@@ -20,6 +20,7 @@
 #include <chrono>
 #include <random>
 #include <string>
+#include <thread>
 #include <typeinfo>
 #include <unordered_map>
 
@@ -369,6 +370,60 @@ void runSimple() {
     EXPECT_EQ(
         h2.find(to<std::string>(i * i * i))->first, to<std::string>(i * i * i));
     EXPECT_TRUE(h2.find(to<std::string>(i * i * i + 2)) == h2.end());
+  }
+
+  {
+    std::vector<std::string> keys;
+    keys.reserve(2000);
+    for (uint64_t i = 0; i < 1000; ++i) {
+      keys.push_back(to<std::string>(i * i * i));
+      keys.push_back(to<std::string>(i * i * i + 2));
+    }
+
+    std::vector<typename T::iterator> iters;
+    iters.resize(2000);
+    h2.findv(keys.begin(), keys.end(), iters.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      EXPECT_TRUE(h2.find(keys[i]) == iters[i]);
+    }
+
+    for (uint64_t lim = 0; lim < 64; ++lim) {
+      h2.findv(keys.begin(), keys.begin() + lim, iters.begin() + lim);
+      for (uint64_t i = 0; i < lim; ++i) {
+        EXPECT_TRUE(h2.find(keys[i]) == iters[i + lim]);
+      }
+    }
+
+    std::vector<typename T::const_iterator> citers;
+    citers.resize(2000);
+    const_cast<const T&>(h2).findv(keys.begin(), keys.end(), citers.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      EXPECT_TRUE(h2.find(keys[i]) == citers[i]);
+    }
+
+    std::vector<std::string*> ptrs;
+    ptrs.resize(2000);
+    h2.get_ptrs(keys.begin(), keys.end(), ptrs.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      auto it = h2.find(keys[i]);
+      if (it != h2.end()) {
+        EXPECT_EQ(&it->second, ptrs[i]);
+      } else {
+        EXPECT_EQ(nullptr, ptrs[i]);
+      }
+    }
+
+    std::vector<const std::string*> cptrs;
+    cptrs.resize(2000);
+    const_cast<const T&>(h2).get_ptrs(keys.begin(), keys.end(), cptrs.begin());
+    for (uint64_t i = 0; i < 2000; ++i) {
+      auto it = h2.find(keys[i]);
+      if (it != h2.end()) {
+        EXPECT_EQ(&it->second, cptrs[i]);
+      } else {
+        EXPECT_EQ(nullptr, cptrs[i]);
+      }
+    }
   }
 
   T h4{h2};
@@ -2144,4 +2199,169 @@ TEST(F14Map, copyAfterRemovedCollisions) {
   testCopyAfterRemovedCollisions<F14VectorMap>();
   testCopyAfterRemovedCollisions<F14NodeMap>();
   testCopyAfterRemovedCollisions<F14FastMap>();
+}
+
+template <typename F>
+void parallel(unsigned n, F&& func) {
+  std::vector<std::thread> threads;
+  for (unsigned i = 0; i < n; ++i) {
+    threads.emplace_back([&]() {
+      func();
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+}
+
+template <template <class...> class TMap>
+void runSimpleBench(const char* name) {
+  unsigned n = 30000000;
+  unsigned p = 8;
+  static constexpr unsigned kWidth = 64;
+
+  TMap<unsigned, unsigned> map;
+  std::vector<unsigned> present;
+  std::vector<unsigned> absent;
+  std::vector<unsigned> mixed;
+
+  map.reserve(n);
+  present.reserve(n);
+  absent.reserve(n);
+  mixed.reserve(n * 2);
+  for (unsigned i = 0; i < n; ++i) {
+    map[10 * i] = i;
+    present.push_back(10 * i);
+    absent.push_back(10 * i + 1);
+    mixed.push_back(10 * i);
+    mixed.push_back(10 * i + 1);
+  }
+
+  std::mt19937_64 gen(0);
+  std::shuffle(present.begin(), present.end(), gen);
+  std::shuffle(absent.begin(), absent.end(), gen);
+  std::shuffle(mixed.begin(), mixed.end(), gen);
+
+  for (int pass = 0; pass < 3; ++pass) {
+    auto t0 = std::chrono::steady_clock::now();
+    parallel(0, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      for (auto& k : present) {
+        auto it = map.find(k);
+        if (it != map.end()) {
+          sum += it->second;
+        } else {
+          ++miss;
+        }
+      }
+      EXPECT_EQ(sum, n * size_t(n - 1) / 2);
+      EXPECT_EQ(miss, 0);
+    });
+    auto t1 = std::chrono::steady_clock::now();
+    parallel(0, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      for (auto& k : absent) {
+        auto it = map.find(k);
+        if (it != map.end()) {
+          sum += it->second;
+        } else {
+          ++miss;
+        }
+      }
+      EXPECT_EQ(sum, 0);
+      EXPECT_EQ(miss, n);
+    });
+    auto t2 = std::chrono::steady_clock::now();
+    parallel(p, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      for (auto& k : mixed) {
+        auto it = map.find(k);
+        if (it != map.end()) {
+          sum += it->second;
+        } else {
+          ++miss;
+        }
+      }
+      EXPECT_EQ(sum, n * size_t(n - 1) / 2);
+      EXPECT_EQ(miss, n);
+    });
+    auto t3 = std::chrono::steady_clock::now();
+    parallel(0, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      std::array<unsigned*, kWidth> ptrs;
+      for (unsigned i = 0; i < n; i += ptrs.size()) {
+        unsigned avail = std::min(static_cast<unsigned>(ptrs.size()), n - i);
+        map.template get_ptrs<kWidth>(present.begin() + i, present.begin() + i + avail, ptrs.begin());
+        for (unsigned j = 0; j < avail; ++j) {
+          if (ptrs[j] != nullptr) {
+            sum += *ptrs[j];
+          } else {
+            ++miss;
+          }
+        }
+      }
+      EXPECT_EQ(sum, n * size_t(n - 1) / 2);
+      EXPECT_EQ(miss, 0);
+    });
+    auto t4 = std::chrono::steady_clock::now();
+    parallel(0, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      std::array<unsigned*, kWidth> ptrs;
+      for (unsigned i = 0; i < n; i += ptrs.size()) {
+        unsigned avail = std::min(static_cast<unsigned>(ptrs.size()), n - i);
+        map.template get_ptrs<kWidth>(absent.begin() + i, absent.begin() + i + avail, ptrs.begin());
+        for (unsigned j = 0; j < avail; ++j) {
+          if (ptrs[j] != nullptr) {
+            sum += *ptrs[j];
+          } else {
+            ++miss;
+          }
+        }
+      }
+      EXPECT_EQ(sum, 0);
+      EXPECT_EQ(miss, n);
+    });
+    auto t5 = std::chrono::steady_clock::now();
+    parallel(p, [&](){
+      size_t sum = 0;
+      unsigned miss = 0;
+      std::array<unsigned*, kWidth> ptrs;
+      for (unsigned i = 0; i < 2 * n; i += ptrs.size()) {
+        unsigned avail = std::min(static_cast<unsigned>(ptrs.size()), 2 * n - i);
+        map.template get_ptrs<kWidth>(mixed.begin() + i, mixed.begin() + i + avail, ptrs.begin());
+        for (unsigned j = 0; j < avail; ++j) {
+          if (ptrs[j] != nullptr) {
+            sum += *ptrs[j];
+          } else {
+            ++miss;
+          }
+        }
+      }
+      EXPECT_EQ(sum, n * size_t(n - 1) / 2);
+      EXPECT_EQ(miss, n);
+    });
+    auto t6 = std::chrono::steady_clock::now();
+
+    if (pass > 0) {
+      LOG(INFO)
+        << name << " (n=" << n << ")"
+        << ": seq present " << std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count()
+        << ", seq absent " << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()
+        << ", seq mixed " << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count()
+        << ", vec present " << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count()
+        << ", vec absent " << std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count()
+        << ", vec mixed " << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count();
+    }
+  }
+}
+
+TEST(F14Map, bench) {
+  runSimpleBench<F14VectorMap>("F14VectorMap");
+  runSimpleBench<F14ValueMap>("F14ValueMap");
+  //runSimpleBench<F14NodeMap>("F14NodeMap");
 }

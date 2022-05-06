@@ -1310,7 +1310,140 @@ class F14Table : public Policy {
     return ItemIter{};
   }
 
+  // Sets results[i] to (count(keys[i]) ? itemIterToResult(find(keys[i])) :
+  // emptyResult) for each i < n.  May perform multiple
+  // assignments to results[i] -- only the last is correct.
+  template <unsigned N, typename KIter, typename RIter, typename R, typename F>
+  void findvImpl(KIter keys, size_t n, RIter results, R emptyResult,
+                 F&& itemIterToResult) const {
+    std::array<uint8_t, N> tags;
+    std::array<unsigned, N> chunkIndexes;
+    std::array<SparseMaskIter, N> hitIters;
+    std::array<unsigned, N> itemIndexes;
+
+    assume(n <= N);
+
+    // step 0, set up results and prefetch chunks
+    for (unsigned i = 0; i < n; ++i) {
+      results[i] = emptyResult;
+
+      auto hp = splitHash(this->computeKeyHash(keys[i]));
+      tags[i] = hp.second;
+      chunkIndexes[i] = hp.first & chunkMask_;
+
+      ChunkPtr chunk = chunks_ + chunkIndexes[i];
+      prefetchAddr(std::addressof(*chunk));
+    }
+
+    // step 1, read chunks and do tag match
+    for (unsigned i = 0; i < n; ++i) {
+      ChunkPtr chunk = chunks_ + chunkIndexes[i];
+      hitIters[i] = chunk->tagMatchIter(tags[i]);
+    }
+
+    // step 2, look at the tag results, categorize, and prefetch
+    std::array<uint8_t, N> needsKeyCmp;
+    unsigned numNeedsKeyCmp = 0;
+    std::array<uint8_t, N> needsProbe;
+    unsigned numNeedsProbe = 0;
+    for (unsigned i = 0; i < n; ++i) {
+      ChunkPtr chunk = chunks_ + chunkIndexes[i];
+      if (hitIters[i].hasNext()) {
+        itemIndexes[i] = hitIters[i].next();
+        if (this->prefetchBeforeRehash()) {
+          this->prefetchValue(chunk->item(itemIndexes[i]));
+        }
+        needsKeyCmp[numNeedsKeyCmp++] = i;
+      } else if (chunk->outboundOverflowCount() != 0) {
+        needsProbe[numNeedsProbe++] = i;
+      }
+    }
+
+    for (uint64_t pass = 0; pass <= chunkMask_; ++pass) {
+      while (numNeedsKeyCmp != 0) {
+        // step 3, check actual keys
+        auto lim = numNeedsKeyCmp;
+        numNeedsKeyCmp = 0;
+        for (unsigned s = 0; s < lim; ++s) {
+          unsigned i = needsKeyCmp[s];
+          ChunkPtr chunk = chunks_ + chunkIndexes[i];
+          if (this->keyMatchesItem(keys[i], chunk->item(itemIndexes[i]))) {
+            results[i] = itemIterToResult(ItemIter{chunk, itemIndexes[i]});
+          } else if (hitIters[i].hasNext()) {
+            itemIndexes[i] = hitIters[i].next();
+            if (this->prefetchBeforeRehash()) {
+              this->prefetchValue(chunk->item(itemIndexes[i]));
+            }
+            needsKeyCmp[numNeedsKeyCmp++] = i;
+          } else if (chunk->outboundOverflowCount() != 0) {
+            needsProbe[numNeedsProbe++] = i;
+          }
+        }
+      }
+
+      if (numNeedsProbe == 0) {
+        break;
+      }
+
+      // redo step 0
+      for (unsigned s = 0; s < numNeedsProbe; ++s) {
+        unsigned i = needsProbe[s];
+
+        // We can't use the probeDelta() function here because it takes (but
+        // does not use all of) a full HashPair. This is ugly :(
+        size_t probeDelta = 2 * tags[i] + 1;
+        chunkIndexes[i] = (chunkIndexes[i] + probeDelta) & chunkMask_;
+
+        ChunkPtr chunk = chunks_ + chunkIndexes[i];
+        prefetchAddr(std::addressof(*chunk));
+      }
+
+      // redo step 1
+      for (unsigned s = 0; s < numNeedsProbe; ++s) {
+        unsigned i = needsProbe[s];
+
+        ChunkPtr chunk = chunks_ + chunkIndexes[i];
+        hitIters[i] = chunk->tagMatchIter(tags[i]);
+      }
+
+      // redo step 2
+      auto lim = numNeedsProbe;
+      numNeedsProbe = 0;
+      numNeedsKeyCmp = 0;
+      for (unsigned s = 0; s < lim; ++s) {
+        unsigned i = needsProbe[s];
+        ChunkPtr chunk = chunks_ + chunkIndexes[i];
+        if (hitIters[i].hasNext()) {
+          itemIndexes[i] = hitIters[i].next();
+          if (this->prefetchBeforeRehash()) {
+            this->prefetchValue(chunk->item(itemIndexes[i]));
+          }
+          needsKeyCmp[numNeedsKeyCmp++] = i;
+        } else if (chunk->outboundOverflowCount() != 0) {
+          needsProbe[numNeedsProbe++] = i;
+        }
+      }
+    }
+  }
+
  public:
+  // Sets results[i] to (count(keys[i]) ? itemIterToResult(find(keys[i]))
+  // : emptyResult) for each i < kend - kbegin. May perform multiple
+  // assignments to results[i] -- only the last is correct.
+  template <unsigned kMaxProcessingWidth,
+            typename KIter,
+            typename RIter,
+            typename R,
+            typename F>
+  void findv(KIter kbegin, KIter kend, RIter results, R emptyResult,
+             F&& itemIterToResult) const {
+    size_t n = kend - kbegin;
+    for (size_t i = 0; i < n; i += kMaxProcessingWidth) {
+      size_t avail = std::min<size_t>(n - i, kMaxProcessingWidth);
+      findvImpl<kMaxProcessingWidth>(kbegin + i, avail, results + i, emptyResult, itemIterToResult);
+    }
+  }
+
   // Prehashing splits the work of find(key) into two calls, enabling you
   // to manually implement loop pipelining for hot bulk lookups.  prehash
   // computes the hash and prefetches the first computed memory location,
