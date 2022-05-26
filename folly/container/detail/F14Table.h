@@ -1323,6 +1323,19 @@ class F14Table : public Policy {
     prefetchAddr(firstChunk);
     return F14HashToken(std::move(hp));
   }
+  
+  // Prefetch the first matched value if there is at least one match in tags
+  template <typename K>
+  void prefetchFirstMatchedValue(K const& key) const {
+    auto hp = splitHash(this->computeKeyHash(key));
+    std::size_t index = hp.first;
+    ChunkPtr chunk = chunks_ + (index & chunkMask_);
+    auto hits = chunk->tagMatchIter(hp.second);
+    if (hits.hasNext()) {
+      auto i = hits.next();
+      this->prefetchValue(chunk->item(i));
+    }
+  }
 
   template <typename K>
   FOLLY_ALWAYS_INLINE ItemIter find(K const& key) const {
