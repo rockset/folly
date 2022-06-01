@@ -142,7 +142,12 @@ class SaturatingSemaphore {
   }
 
   /** reset */
-  void reset() noexcept { state_.store(NOTREADY, std::memory_order_relaxed); }
+  void reset() noexcept {
+      State expected = READY;
+      // If the previous state is BLOCKED, it should remain BLOCKED, so that
+      // existing waiters will be woken by post()
+      state_.compare_exchange_strong(expected, NOTREADY, std::memory_order_relaxed);
+  }
 
   /** post */
   FOLLY_ALWAYS_INLINE void post() noexcept {
