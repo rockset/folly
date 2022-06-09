@@ -744,7 +744,11 @@ estimateSpaceNeeded(Src value) {
 
 namespace detail {
 constexpr int kConvMaxDecimalInShortestLow = -6;
-constexpr int kConvMaxDecimalInShortestHigh = 21;
+// int64_t range: [-9223372036854775808, 9223372036854775807]
+// The max value is 19 digits in decimal. To prevent double numbers without
+// fraction got converted to an integer overflowing int64_t, we must let it use
+// scientific representation when there are >=19 digits before decimal point.
+constexpr int kConvMaxDecimalInShortestHigh = 18;
 } // namespace detail
 
 /** Wrapper around DoubleToStringConverter **/
