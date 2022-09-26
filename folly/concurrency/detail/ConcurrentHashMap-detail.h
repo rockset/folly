@@ -197,7 +197,7 @@ template <
     typename Allocator = std::allocator<uint8_t>,
     template <typename> class Atom = std::atomic,
     class Mutex = std::mutex>
-class alignas(64) BucketTable {
+class BucketTable {
  public:
   // Slightly higher than 1.0, in case hashing to shards isn't
   // perfectly balanced, reserve(size) will still work without
@@ -718,7 +718,7 @@ class alignas(64) BucketTable {
   size_t const max_size_;
 
   // Fields needed for read-only access, on separate cacheline.
-  alignas(64) Atom<Buckets*> buckets_{nullptr};
+  Atom<Buckets*> buckets_{nullptr};
   std::atomic<uint64_t> seqlock_{0};
   Atom<size_t> bucket_count_;
 };
@@ -784,14 +784,14 @@ template <
     typename Allocator = std::allocator<uint8_t>,
     template <typename> class Atom = std::atomic,
     class Mutex = std::mutex>
-class alignas(64) SIMDTable {
+class SIMDTable {
  public:
   using Node =
       concurrenthashmap::simd::NodeT<KeyType, ValueType, Allocator, Atom>;
 
  private:
   using HashPair = std::pair<std::size_t, std::size_t>;
-  struct alignas(kRequiredVectorAlignment) Chunk {
+  struct Chunk {
     static constexpr unsigned kCapacity = 14;
     static constexpr unsigned kDesiredCapacity = 12;
 
@@ -1565,7 +1565,7 @@ class alignas(64) SIMDTable {
   size_t const max_size_;
 
   // Fields needed for read-only access, on separate cacheline.
-  alignas(64) Atom<Chunks*> chunks_{nullptr};
+  Atom<Chunks*> chunks_{nullptr};
   std::atomic<uint64_t> seqlock_{0};
   Atom<size_t> chunk_count_;
 };
@@ -1618,7 +1618,7 @@ template <
         class,
         class>
     class Impl = concurrenthashmap::bucket::BucketTable>
-class alignas(64) ConcurrentHashMapSegment {
+class ConcurrentHashMapSegment {
   using ImplT = Impl<
       KeyType,
       ValueType,
