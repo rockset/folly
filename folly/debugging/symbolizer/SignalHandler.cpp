@@ -484,7 +484,7 @@ void signalHandler(int signum, siginfo_t* info, void* uctx) {
 // must use UnsafeSelfAllocateStackTracePrinter() to avoid stack overflow
 // during symbolization of a signal. 48K has been observed to have stack
 // overflow, and 56K has been observed to work.
-constexpr size_t kSmallSigAltStackSize = 655360
+constexpr size_t kSmallSigAltStackSize = 655360;
 
 [[maybe_unused]] bool isSmallSigAltStackEnabled() {
   stack_t ss;

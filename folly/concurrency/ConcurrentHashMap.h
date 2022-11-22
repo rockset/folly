@@ -237,7 +237,7 @@ class ConcurrentHashMap {
       auto seg = segments_[i].load(std::memory_order_relaxed);
       if (seg) {
         seg->~SegmentT();
-        SegmentTAllocator().deallocate(seg, 1);
+        deallocateOverAligned(SegmentTAllocator(), seg, 1);
       }
       segments_[i].store(
           o.segments_[i].load(std::memory_order_relaxed),
@@ -265,7 +265,7 @@ class ConcurrentHashMap {
       auto seg = segments_[i].load(std::memory_order_relaxed);
       if (seg) {
         seg->~SegmentT();
-        SegmentTAllocator().deallocate(seg, 1);
+        deallocateOverAligned(SegmentTAllocator(), seg, 1);
       }
     }
     cohort_shutdown_cleanup();
@@ -729,13 +729,13 @@ class ConcurrentHashMap {
     SegmentT* seg = segments_[i].load(std::memory_order_acquire);
     if (!seg) {
       auto b = ensureCohort();
-      SegmentT* newseg = SegmentTAllocator().allocate(1);
+      SegmentT* newseg = allocateOverAligned(SegmentTAllocator(), 1);
       newseg = new (newseg)
           SegmentT(size_ >> ShardBits, load_factor_, max_size_ >> ShardBits, b);
       if (!segments_[i].compare_exchange_strong(seg, newseg)) {
         // seg is updated with new value, delete ours.
         newseg->~SegmentT();
-        SegmentTAllocator().deallocate(newseg, 1);
+        deallocateOverAligned(SegmentTAllocator(), newseg, 1);
       } else {
         seg = newseg;
         updateBeginAndEndSegments(i);
