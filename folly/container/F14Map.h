@@ -628,6 +628,11 @@ class F14BasicMap {
     return table_.prehash(key);
   }
 
+  template <typename K>
+  void prefetchFirstMatchedValue(K const& key) const {
+    return table_.prefetchFirstMatchedValue(key);
+  }
+
   FOLLY_ALWAYS_INLINE iterator find(key_type const& key) {
     return table_.makeIter(table_.find(key));
   }
