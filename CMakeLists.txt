@@ -1023,6 +1023,7 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
       TEST stats_timeseries_test SOURCES TimeSeriesTest.cpp
 
     DIRECTORY synchronization/test/
+      TEST rcu_test SOURCES RcuTest.cpp
       TEST synchronization_atomic_util_test SOURCES AtomicUtilTest.cpp
       TEST synchronization_atomic_struct_test SOURCES AtomicStructTest.cpp
       BENCHMARK synchronization_baton_benchmark SOURCES BatonBenchmark.cpp
