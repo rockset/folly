@@ -957,6 +957,7 @@ if (BUILD_TESTS OR BUILD_BENCHMARKS)
       TEST event_count_test SOURCES EventCountTest.cpp
       TEST lifo_sem_test WINDOWS_DISABLED SOURCES LifoSemTests.cpp
       TEST relaxed_atomic_test WINDOWS_DISABLED SOURCES RelaxedAtomicTest.cpp
+      TEST rcu_test SOURCES RcuTest.cpp
       TEST rw_spin_lock_test SOURCES RWSpinLockTest.cpp
       TEST semaphore_test WINDOWS_DISABLED SOURCES SemaphoreTest.cpp
 
