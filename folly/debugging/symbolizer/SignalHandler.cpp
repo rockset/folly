@@ -412,6 +412,27 @@ void dumpSignalInfo(int signum, siginfo_t* siginfo) {
   print("), stack trace: ***\n");
 }
 
+void dumpContext(void* uctx) {
+#if FOLLY_X64
+  print("*** Uctx (TSC_AUX ");
+  {
+    unsigned a, d, aux;
+    __asm__ volatile ("rdtscp" : "=a"(a), "=d"(d), "=c"(aux) :: "memory");
+    printHex(aux);
+  }
+
+  auto& gregs = static_cast<ucontext_t*>(uctx)->uc_mcontext.gregs;
+  print(") (RIP ");
+  printHex(gregs[REG_RIP]);
+  print(", RSP ");
+  printHex(gregs[REG_RSP]);
+  print(", RBP ");
+  printHex(gregs[REG_RBP]);
+  print(")\n");
+  flush();
+#endif
+}
+
 // On Linux, pthread_t is a pointer, so 0 is an invalid value, which we
 // take to indicate "no thread in the signal handler".
 //
@@ -422,7 +443,7 @@ std::atomic<pthread_t> gSignalThread(kInvalidThreadId);
 std::atomic<bool> gInRecursiveSignalHandler(false);
 
 // Here be dragons.
-void innerSignalHandler(int signum, siginfo_t* info, void* /* uctx */) {
+void innerSignalHandler(int signum, siginfo_t* info, void* uctx) {
   // First, let's only let one thread in here at a time.
   pthread_t myId = pthread_self();
 
@@ -451,6 +472,7 @@ void innerSignalHandler(int signum, siginfo_t* info, void* /* uctx */) {
   dumpTimeInfo();
   dumpSignalInfo(signum, info);
   gStackTracePrinter->printStackTrace(true); // with symbolization
+  dumpContext(uctx);
 
   // Run user callbacks
   auto callbacks = gFatalSignalCallbackRegistry.load(std::memory_order_acquire);
